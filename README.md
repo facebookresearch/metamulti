@@ -4,7 +4,7 @@ provides the LaTeX and BibTeX sources required for replicating the paper.
 
 Be sure to ``pip install hilbertcurve`` prior to running any of this software
 (the codes depend on [HilbertCurve](https://github.com/galtay/hilbertcurve)).
-Also be sure to ``gunzip codes/cup98lrn.txt`` prior to running
+Also be sure to ``gunzip codes/cup98lrn.txt.gz`` prior to running
 ``codes/kddcup98.py``.
 
 The main files in the repository are the following:
