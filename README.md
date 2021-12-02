@@ -60,7 +60,7 @@ Regenerating all the figures requires running in the directory ``codes``
 
     cd codes
     pip install hilbertcurve
-    gunzip codes/cup98lrn.txt.gz
+    gunzip cup98lrn.txt.gz
     python acs.py --var 'MV'
     python acs.py --var 'NOC'
     python acs.py --var 'MV+NOC'
