@@ -263,7 +263,7 @@ def icumulative(r, s, t, u, covariates, inds, majorticks, minorticks,
 
 # Specify the name of the file of comma-separated values
 # for the training data about the direct-mail marketing campaign.
-filename = 'kddcup98/cup98lrn.txt'
+filename = 'cup98lrn.txt'
 
 # Parse the command-line arguments (if any).
 parser = argparse.ArgumentParser()
