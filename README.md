@@ -61,12 +61,19 @@ Regenerating all the figures requires running in the directory ``codes``
     cd codes
     pip install hilbertcurve
     gunzip cup98lrn.txt.gz
-    python acs.py --var 'MV'
-    python acs.py --var 'NOC'
-    python acs.py --var 'MV+NOC'
-    python acs.py --var 'NOC+MV'
-    python kddcup98.py
+    python acs.py --non-interactive --var 'MV'
+    python acs.py --non-interactive --var 'NOC'
+    python acs.py --non-interactive --var 'MV+NOC'
+    python acs.py --non-interactive --var 'NOC+MV'
+    python kddcup98.py --non-interactive
     python synthetic.py
+
+``acs.py`` and ``kddcup98.py`` include interactive modes to facilitate browsing
+through the associated parameterizations of the covariates used as controls
+(where the Hilbert curve specifies the parameterization). The default setting
+is interactive, not saving plots to disk; to save plots to disk, just specify
+``--no-interactive`` or ``--non-interactive`` during invocation as a script on
+the command-line.
 
 ********************************************************************************
 

@@ -5,7 +5,13 @@ Plot the subpopulation deviations for the American Community Survey of USCB.
 
 Copyright (c) Meta Platforms, Inc. and affiliates.
 
-This script creates a directory, "weighted", in the working directory if the
+This script offers command-line options "--interactive" and "--no-interactive"
+for plotting interactively and non-interactively, respectively. Interactive is
+the default. The interactive setting does the same as the non-interactive, but
+without saving to disk any plots, and without plotting any classical
+reliability diagrams or any scatterplots of the covariates used as controls.
+When run non-interactively (i.e., with command-line option "--no-interactive"),
+this script creates a directory, "weighted", in the working directory if the
 directory does not already exist, then creates a subdirectory there for one
 of the four supported combinations of covariates used for conditioning: "MV",
 "NOC", "MV+NOC", or "NOC+MV", where "MV" refers to "time since last move",
@@ -62,12 +68,224 @@ import numpy as np
 import os
 import subprocess
 
+import matplotlib
+from matplotlib.backend_bases import MouseButton
+from matplotlib.ticker import FixedFormatter
+from matplotlib import get_backend
+default_backend = get_backend()
+matplotlib.use('agg')
+import matplotlib.pyplot as plt
+
 from hilbertcurve.hilbertcurve import HilbertCurve
 from subpop_weighted import equiscores, equierrs, cumulative
 
-import matplotlib
-matplotlib.use('agg')
-import matplotlib.pyplot as plt
+
+def icumulative(r, s, t, u, covariates, inds, majorticks, minorticks,
+                bernoulli=True,
+                title='subpop. deviation is the slope as a function of $A_k$',
+                fraction=1, weights=None, window='Figure'):
+    """
+    Cumulative difference between observations from a subpop. & the full pop.
+
+    Plots the difference between the normalized cumulative weighted sums of r
+    for the subpopulation indices inds and the normalized cumulative
+    weighted sums of r from the full population interpolated to the subpop.
+    indices, with majorticks major ticks and minorticks minor ticks on the
+    lower axis, labeling the major ticks with the corresponding values from s.
+
+    Parameters
+    ----------
+    r : array_like
+        random outcomes
+    s : array_like
+        scores (must be unique and in strictly increasing order)
+    t : array_like
+        normalized values of the covariates
+    u : array_like
+        unnormalized values of the covariates
+    covariates : array_like
+        strings labeling the covariates
+    inds : array_like
+        indices of the subset within s that defines the subpopulation
+        (must be unique and in strictly increasing order)
+    majorticks : int
+        number of major ticks on each of the horizontal axes
+    minorticks : int
+        number of minor ticks on the lower axis
+    bernoulli : bool, optional
+        set to True (the default) for Bernoulli variates; set to False
+        to use empirical estimates of the variance rather than the formula
+        p(1-p) for a Bernoulli variate whose mean is p
+    filename : string, optional
+        name of the file in which to save the plot
+    title : string, optional
+        title of the plot
+    fraction : float, optional
+        proportion of the full horizontal axis to display
+    weights : array_like, optional
+        weights of the observations
+        (the default None results in equal weighting)
+    window : string, optional
+        title of the window displayed in the title bar
+    """
+
+    def histcounts(nbins, a):
+        # Counts the number of entries of a
+        # falling into each of nbins equispaced bins.
+        j = 0
+        nbin = np.zeros(nbins, dtype=np.int64)
+        for k in range(len(a)):
+            if a[k] > a[-1] * (j + 1) / nbins:
+                j += 1
+            if j == nbins:
+                break
+            nbin[j] += 1
+        return nbin
+
+    def aggregate(r, s, inds, w):
+        # Determines the total weight and variance of the nonzero entries of r
+        # in a bin around each entry of s corresponding to the subset of s
+        # specified by the indices inds. The bin ranges from halfway
+        # to the nearest entry of s from inds on the left to halfway
+        # to the nearest entry of s from inds on the right.
+        ss = s[inds]
+        q = np.insert(np.append(ss, [1e20]), 0, [-1e20])
+        t = np.asarray([(q[k] + q[k + 1]) / 2 for k in range(len(q) - 1)])
+        rc = np.zeros((len(inds)))
+        rc2 = np.zeros((len(inds)))
+        sc = np.zeros((len(inds)))
+        j = 0
+        for k in range(len(s)):
+            if s[k] > t[j + 1]:
+                j += 1
+                if j == len(inds):
+                    break
+            if s[k] >= t[0]:
+                sc[j] += w[k]
+                rc[j] += w[k] * r[k]
+                rc2[j] += w[k] * r[k]**2
+        means = rc / sc
+        return means, rc2 / sc - means**2
+
+    def on_move(event):
+        if event.inaxes:
+            ax = event.inaxes
+            k = round(event.xdata * (len(inds) - 1))
+            toptxt = ''
+            bottomtxt = ''
+            for j in range(len(covariates)):
+                toptxt += covariates[j]
+                if(np.allclose(
+                        np.round(u[inds[k], j]), u[inds[k], j], rtol=1e-5)):
+                    toptxt += ' = {}'.format(round(u[inds[k], j]))
+                else:
+                    toptxt += ' = {:.2f}'.format(u[inds[k], j])
+                toptxt += '\n'
+                bottomtxt += 'normalized ' + covariates[j]
+                bottomtxt += ' = {:.2f}'.format(t[inds[k], j])
+                bottomtxt += '\n'
+            toptxt += '$S_{i_k}$' + ' = {:.2f}'.format(s[inds[k]])
+            bottomtxt += '$S_{i_k}$' + ' = {:.2f}'.format(s[inds[k]])
+            toptext.set_text(toptxt)
+            bottomtext.set_text(bottomtxt)
+            plt.draw()
+
+    def on_click(event):
+        if event.button is MouseButton.LEFT:
+            plt.disconnect(binding_id)
+            plt.close()
+
+    assert all(s[k] < s[k + 1] for k in range(len(s) - 1))
+    assert all(inds[k] < inds[k + 1] for k in range(len(inds) - 1))
+    # Determine the weighting scheme.
+    if weights is None:
+        w = np.ones((len(s)))
+    else:
+        w = weights.copy()
+    assert np.all(w > 0)
+    w /= w.sum()
+    # Create the figure.
+    plt.figure(window)
+    ax = plt.axes()
+    # Aggregate r according to inds, s, and w.
+    rt, rtvar = aggregate(r, s, inds, w)
+    # Subsample r, s, and w.
+    rs = r[inds]
+    ss = s[inds]
+    ws = w[inds]
+    ws /= ws[:int(len(ws) * fraction)].sum()
+    # Accumulate the weighted rs and rt, as well as ws.
+    f = np.insert(np.cumsum(ws * rs), 0, [0])
+    ft = np.insert(np.cumsum(ws * rt), 0, [0])
+    x = np.insert(np.cumsum(ws), 0, [0])
+    # Plot the difference.
+    plt.plot(
+        x[:int(len(x) * fraction)], (f - ft)[:int(len(f) * fraction)], 'k')
+    # Make sure the plot includes the origin.
+    plt.plot(0, 'k')
+    # Add an indicator of the scale of 1/sqrt(n) to the vertical axis.
+    rtsub = np.insert(rt, 0, [0])[:(int(len(rt) * fraction) + 1)]
+    if bernoulli:
+        lenscale = np.sqrt(np.sum(ws**2 * rtsub[1:] * (1 - rtsub[1:])))
+    else:
+        lenscale = np.sqrt(np.sum(ws**2 * rtvar))
+    plt.plot(2 * lenscale, 'k')
+    plt.plot(-2 * lenscale, 'k')
+    kwargs = {
+        'head_length': 2 * lenscale, 'head_width': fraction / 20, 'width': 0,
+        'linewidth': 0, 'length_includes_head': True, 'color': 'k'}
+    plt.arrow(.1e-100, -2 * lenscale, 0, 4 * lenscale, shape='left', **kwargs)
+    plt.arrow(.1e-100, 2 * lenscale, 0, -4 * lenscale, shape='right', **kwargs)
+    plt.margins(x=0, y=.6)
+    # Label the major ticks of the lower axis with the values of ss.
+    lenxf = int(len(x) * fraction)
+    sl = ['{:.2f}'.format(a) for a in
+          np.insert(ss, 0, [0])[:lenxf:(lenxf // majorticks)].tolist()]
+    plt.xticks(x[:lenxf:(lenxf // majorticks)], sl)
+    if len(rtsub) >= 300 and minorticks >= 50:
+        # Indicate the distribution of s via unlabeled minor ticks.
+        plt.minorticks_on()
+        ax.tick_params(which='minor', axis='x')
+        ax.tick_params(which='minor', axis='y', left=False)
+        ax.set_xticks(x[np.cumsum(histcounts(minorticks,
+                      ss[:int((len(x) - 1) * fraction)]))], minor=True)
+    # Label the axes.
+    plt.xlabel('$S_{i_k}$ (the subscript on $S$ is $i_k$)')
+    plt.ylabel('$F_k - \\tilde{F}_k$')
+    ax2 = plt.twiny()
+    plt.xlabel(
+        '$k/n$ (together with minor ticks at equispaced values of $A_k$)')
+    ax2.tick_params(which='minor', axis='x', top=True, direction='in', pad=-16)
+    ax2.set_xticks(np.arange(0, 1 + 1 / majorticks, 1 / majorticks),
+                   minor=True)
+    ks = ['{:.2f}'.format(a) for a in
+          np.arange(0, 1 + 1 / majorticks, 1 / majorticks).tolist()]
+    alist = (lenxf - 1) * np.arange(0, 1 + 1 / majorticks, 1 / majorticks)
+    alist = alist.tolist()
+    plt.xticks([x[int(a)] for a in alist], ks)
+    # Include an unbreakable space character (NBSP) as a subscript "_{ }"
+    # on the numerical labels to match the baseline offset of the subscript
+    # of "k" on "A_k" in order to keep all labels aligned vertically.
+    ax2.xaxis.set_minor_formatter(FixedFormatter(
+        [r'$A_k\!=\!{:.2f}$'.format(1 / majorticks)]
+        + [r'${:.2f}'.format(k / majorticks) + r'_{ }$'
+           for k in range(2, majorticks)]))
+    # Title the plot.
+    plt.title(title)
+    # Clean up the whitespace in the plot.
+    plt.tight_layout()
+    # Set the locations (in the plot) of the covariate values.
+    xmid = s[-1] / 2
+    toptext = plt.text(xmid, max(2 * lenscale, np.max(f - ft)), '',
+                       ha='center', va='bottom')
+    bottomtext = plt.text(xmid, min(-2 * lenscale, np.min(f - ft)), '',
+                          ha='center', va='top')
+    # Set up interactivity.
+    binding_id = plt.connect('motion_notify_event', on_move)
+    plt.connect('button_press_event', on_click)
+    # Show the plot.
+    plt.show()
+    plt.close()
 
 
 # Specify which counties and variates to process, as well as the coded value
@@ -90,7 +308,17 @@ filename = 'psam_h06.csv'
 parser = argparse.ArgumentParser()
 parser.add_argument(
     '--var', default='MV', choices=['MV', 'NOC', 'MV+NOC', 'NOC+MV'])
+parser.add_argument('--interactive', dest='interactive', action='store_true')
+parser.add_argument(
+    '--no-interactive', dest='interactive', action='store_false')
+parser.add_argument(
+    '--non-interactive', dest='interactive', action='store_false')
+parser.set_defaults(interactive=True)
 clargs = parser.parse_args()
+
+# Make matplotlib interactive if clargs.interactive is True.
+if clargs.interactive:
+    plt.switch_backend(default_backend)
 
 # Count the number of lines in the file for filename.
 lines = 0
@@ -249,6 +477,9 @@ assert np.unique(ints).size == it.shape[0]
 # Sort according to the scores.
 perm = np.argsort(ints)
 t = t[perm, :]
+u = t.copy()
+for k in range(p):
+    t[:, k] /= np.max(t[:, k])
 # Construct scores for plotting.
 imin = np.min(ints)
 imax = np.max(ints)
@@ -258,26 +489,27 @@ eps = np.finfo(np.float64).eps
 s = s + np.arange(0, s.size * eps, eps)
 s = s.astype(np.float64)
 
-# Create directories as needed.
-dir = 'weighted'
-try:
-    os.mkdir(dir)
-except FileExistsError:
-    pass
-dir = 'weighted/' + clargs.var
-try:
-    os.mkdir(dir)
-except FileExistsError:
-    pass
+if not clargs.interactive:
+    # Create directories as needed.
+    dir = 'weighted'
+    try:
+        os.mkdir(dir)
+    except FileExistsError:
+        pass
+    dir = 'weighted/' + clargs.var
+    try:
+        os.mkdir(dir)
+    except FileExistsError:
+        pass
 
-if var2 is None:
+if var2 is None and not clargs.interactive:
     # Plot all inputs from the full population.
     procs = []
     plt.figure()
     plt.xlabel(var0)
     plt.ylabel(var1)
     colors = .2 + .6 * np.vstack((s, s, s)).T
-    plt.scatter(t[:, 0], t[:, 1], s=5, c=colors, marker='D', linewidths=0)
+    plt.scatter(u[:, 0], u[:, 1], s=5, c=colors, marker='D', linewidths=0)
     filename = dir + '/' + 'inputs'
     plt.savefig(filename + '.pdf', bbox_inches='tight')
     args = [
@@ -298,17 +530,18 @@ for ex in exs:
     # Sort according to the scores.
     r = r[perm]
 
-    # Set a directory for the county (creating the directory if necessary).
-    dir = 'weighted/' + clargs.var + '/County_of_'
-    dir += ex['county'].replace(' ', '_').replace(',', '')
-    dir += '-'
-    dir += ex['var']
-    try:
-        os.mkdir(dir)
-    except FileExistsError:
-        pass
-    dir += '/'
-    print(f'./{dir} is under construction....')
+    if not clargs.interactive:
+        # Set a directory for the county (creating the directory if necessary).
+        dir = 'weighted/' + clargs.var + '/County_of_'
+        dir += ex['county'].replace(' ', '_').replace(',', '')
+        dir += '-'
+        dir += ex['var']
+        try:
+            os.mkdir(dir)
+        except FileExistsError:
+            pass
+        dir += '/'
+        print(f'./{dir} is under construction....')
 
     # Identify the indices of the subset corresponding to the county.
     slice = raw[perm, header.index('PUMA')]
@@ -317,17 +550,17 @@ for ex in exs:
     inds = np.nonzero(inds)[0]
     inds = np.unique(inds)
 
-    if var2 is None:
+    if var2 is None and not clargs.interactive:
         # Plot the inputs.
         plt.figure()
         plt.xlabel(var0)
         plt.ylabel(var1)
         colors = .2 + .6 * np.vstack((s, s, s)).T
         plt.scatter(
-            t[inds, 0], t[inds, 1], s=5, c=colors[inds, :], marker='D',
+            u[inds, 0], u[inds, 1], s=5, c=colors[inds, :], marker='D',
             linewidths=0)
         plt.scatter(
-            t[:, 0], t[:, 1], s=.5, c=1 - colors, marker='o', linewidths=0)
+            u[:, 0], u[:, 1], s=.5, c=1 - colors, marker='o', linewidths=0)
         filename = dir + 'inputs'
         plt.savefig(filename + '.pdf', bbox_inches='tight')
         args = [
@@ -335,42 +568,54 @@ for ex in exs:
             filename + '.jpg']
         procs.append(subprocess.Popen(args))
 
-    # Plot reliability diagrams and the cumulative graph.
-    nin = [10, 20, 100]
-    nout = {}
-    for nbins in nin:
-        filename = dir + 'equiscores' + str(nbins) + '.pdf'
-        equiscores(r, s, inds, nbins, filename, weights=w, left=0)
-        filename = dir + 'equierrs' + str(nbins) + '.pdf'
-        nout[str(nbins)] = equierrs(r, s, inds, nbins, filename, weights=w)
-    majorticks = 10
-    minorticks = 300
-    filename = dir + 'cumulative.pdf'
-    kuiper, kolmogorov_smirnov, lenscale = cumulative(
-        r, s, inds, majorticks, minorticks, ex['val'] is not None,
-        filename=filename, weights=w)
-    # Save metrics in a text file.
-    filename = dir + 'metrics.txt'
-    with open(filename, 'w') as f:
-        f.write('m:\n')
-        f.write(f'{len(s)}\n')
-        f.write('n:\n')
-        f.write(f'{len(inds)}\n')
-        f.write('lenscale:\n')
-        f.write(f'{lenscale}\n')
+    if clargs.interactive:
+        # Plot the cumulative differences interactively.
+        covariates = [var0, var1]
+        if var2 is not None:
+            covariates.append(var2)
+        majorticks = 5
+        minorticks = 300
+        window = 'County: ' + ex['county'] + '; Variable: ' + ex['var']
+        window += ' (click the plot to continue)'
+        icumulative(r, s, t, u, covariates, inds, majorticks, minorticks,
+                    ex['val'] is not None, weights=w, window=window)
+    else:
+        # Plot reliability diagrams and the cumulative graph.
+        nin = [10, 20, 100]
+        nout = {}
         for nbins in nin:
-            f.write("nout['" + str(nbins) + "']:\n")
-            f.write(f'{nout[str(nbins)][0]}\n')
-            f.write(f'{nout[str(nbins)][1]}\n')
-        f.write('Kuiper:\n')
-        f.write(f'{kuiper:.4}\n')
-        f.write('Kolmogorov-Smirnov:\n')
-        f.write(f'{kolmogorov_smirnov:.4}\n')
-        f.write('Kuiper / lenscale:\n')
-        f.write(f'{(kuiper / lenscale):.4}\n')
-        f.write('Kolmogorov-Smirnov / lenscale:\n')
-        f.write(f'{(kolmogorov_smirnov / lenscale):.4}\n')
-if var2 is None:
+            filename = dir + 'equiscores' + str(nbins) + '.pdf'
+            equiscores(r, s, inds, nbins, filename, weights=w, left=0)
+            filename = dir + 'equierrs' + str(nbins) + '.pdf'
+            nout[str(nbins)] = equierrs(r, s, inds, nbins, filename, weights=w)
+        majorticks = 10
+        minorticks = 300
+        filename = dir + 'cumulative.pdf'
+        kuiper, kolmogorov_smirnov, lenscale = cumulative(
+            r, s, inds, majorticks, minorticks, ex['val'] is not None,
+            filename=filename, weights=w)
+        # Save metrics in a text file.
+        filename = dir + 'metrics.txt'
+        with open(filename, 'w') as f:
+            f.write('m:\n')
+            f.write(f'{len(s)}\n')
+            f.write('n:\n')
+            f.write(f'{len(inds)}\n')
+            f.write('lenscale:\n')
+            f.write(f'{lenscale}\n')
+            for nbins in nin:
+                f.write("nout['" + str(nbins) + "']:\n")
+                f.write(f'{nout[str(nbins)][0]}\n')
+                f.write(f'{nout[str(nbins)][1]}\n')
+            f.write('Kuiper:\n')
+            f.write(f'{kuiper:.4}\n')
+            f.write('Kolmogorov-Smirnov:\n')
+            f.write(f'{kolmogorov_smirnov:.4}\n')
+            f.write('Kuiper / lenscale:\n')
+            f.write(f'{(kuiper / lenscale):.4}\n')
+            f.write('Kolmogorov-Smirnov / lenscale:\n')
+            f.write(f'{(kolmogorov_smirnov / lenscale):.4}\n')
+if var2 is None and not clargs.interactive:
     print('waiting for conversion from pdf to jpg to finish....')
     for iproc, proc in enumerate(procs):
         proc.wait()

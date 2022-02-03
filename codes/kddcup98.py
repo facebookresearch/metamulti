@@ -5,7 +5,13 @@ Plot the subpopulation deviations for the veterans org's direct mailing.
 
 Copyright (c) Meta Platforms, Inc. and affiliates.
 
-This script creates a directory, "unweighted", in the working directory if the
+This script offers command-line options "--interactive" and "--no-interactive"
+for plotting interactively and non-interactively, respectively. Interactive is
+the default. The interactive setting does the same as the non-interactive, but
+without saving to disk any plots, and without plotting any classical
+reliability diagrams or any scatterplots of the covariates used as controls.
+When run non-interactively (i.e., with command-line option "--no-interactive"),
+this script creates a directory, "unweighted", in the working directory if the
 directory does not already exist, then creates four subdirectories there,
 "folding" comparing the subpop. sent only folding cards to the full population,
 "normal" comparing the subpop. sent only normal cards to the full population,
@@ -73,18 +79,205 @@ import os
 import subprocess
 from numpy.random import default_rng
 
+import matplotlib
+from matplotlib.backend_bases import MouseButton
+from matplotlib.ticker import FixedFormatter
+from matplotlib import get_backend
+default_backend = get_backend()
+matplotlib.use('agg')
+import matplotlib.pyplot as plt
+
 from hilbertcurve.hilbertcurve import HilbertCurve
 import subpop
 import disjoint
 
-import matplotlib
-matplotlib.use('agg')
-import matplotlib.pyplot as plt
+
+def icumulative(r, s, t, u, covariates, inds, majorticks, minorticks,
+                title='subpop. deviation is the slope as a function of $k/n$',
+                fraction=1, window='Figure'):
+    """
+    Cumulative difference between observations from a subpop. & the full pop.
+
+    Plots the difference between the normalized cumulative sums of r
+    for the subpopulation indices inds and the normalized cumulative sums of r
+    from the full population interpolated to the subpopulation indices,
+    with majorticks major ticks and minorticks minor ticks on the lower axis,
+    labeling the major ticks with the corresponding values from s.
+
+    Parameters
+    ----------
+    r : array_like
+        class labels (0 for incorrect and 1 for correct classification)
+    s : array_like
+        scores (must be unique and in strictly increasing order)
+    t : array_like
+        normalized values of the covariates
+    u : array_like
+        unnormalized values of the covariates
+    covariates : array_like
+        strings labeling the covariates
+    inds : array_like
+        indices of the subset within s that defines the subpopulation
+        (must be unique and in strictly increasing order)
+    majorticks : int
+        number of major ticks on the lower axis
+    minorticks : int
+        number of minor ticks on the lower axis
+    filename : string, optional
+        name of the file in which to save the plot
+    title : string, optional
+        title of the plot
+    fraction : float, optional
+        proportion of the full horizontal axis to display
+    window : string, optional
+        title of the window displayed in the title bar
+    """
+
+    def histcounts(nbins, x):
+        # Counts the number of entries of x
+        # falling into each of nbins equispaced bins.
+        j = 0
+        nbin = np.zeros(nbins)
+        for k in range(len(x)):
+            if x[k] > x[-1] * (j + 1) / nbins:
+                j += 1
+            if j == nbins:
+                break
+            nbin[j] += 1
+        return nbin
+
+    def aggregate(r, s, inds):
+        # Counts the fraction that are 1s of entries of r in a bin
+        # around each entry of s corresponding to the subset of s
+        # specified by the indices inds. The bin ranges from halfway
+        # to the nearest entry of s from inds on the left to halfway
+        # to the nearest entry of s from inds on the right.
+        ss = s[inds]
+        q = np.insert(np.append(ss, [1e20]), 0, [-1e20])
+        t = np.asarray([(q[k] + q[k + 1]) / 2 for k in range(len(q) - 1)])
+        rc = np.zeros((len(inds)))
+        sc = np.zeros((len(inds)))
+        j = 0
+        for k in range(len(s)):
+            if s[k] > t[j + 1]:
+                j += 1
+                if j == len(inds):
+                    break
+            if s[k] >= t[0]:
+                sc[j] += 1
+                rc[j] += r[k]
+        return rc / sc
+
+    def on_move(event):
+        if event.inaxes:
+            ax = event.inaxes
+            k = round(event.xdata * (len(inds) - 1))
+            toptxt = ''
+            bottomtxt = ''
+            for j in range(len(covariates)):
+                toptxt += covariates[j]
+                if(np.allclose(
+                        np.round(u[inds[k], j]), u[inds[k], j], rtol=1e-5)):
+                    toptxt += ' = {}'.format(round(u[inds[k], j]))
+                else:
+                    toptxt += ' = {:.2f}'.format(u[inds[k], j])
+                toptxt += '\n'
+                bottomtxt += 'normalized ' + covariates[j]
+                bottomtxt += ' = {:.2f}'.format(t[inds[k], j])
+                bottomtxt += '\n'
+            toptxt += '$S_{i_k}$' + ' = {:.2f}'.format(s[inds[k]])
+            bottomtxt += '$S_{i_k}$' + ' = {:.2f}'.format(s[inds[k]])
+            toptext.set_text(toptxt)
+            bottomtext.set_text(bottomtxt)
+            plt.draw()
+
+    def on_click(event):
+        if event.button is MouseButton.LEFT:
+            plt.disconnect(binding_id)
+            plt.close()
+
+    assert all(s[k] < s[k + 1] for k in range(len(s) - 1))
+    assert all(inds[k] < inds[k + 1] for k in range(len(inds) - 1))
+    assert len(r) == len(s)
+    plt.figure(window)
+    ax = plt.axes()
+    # Aggregate r according to inds and s.
+    rt = aggregate(r, s, inds)
+    # Subsample r and s.
+    rs = r[inds]
+    ss = s[inds]
+    # Accumulate and normalize.
+    f = np.cumsum(rs) / int(len(rs) * fraction)
+    ft = np.cumsum(rt) / int(len(rt) * fraction)
+    # Plot the difference.
+    plt.plot(np.insert(f - ft, 0, [0])[:(int(len(f) * fraction) + 1)], 'k')
+    # Make sure the plot includes the origin.
+    plt.plot(0, 'k')
+    # Add an indicator of the scale of 1/sqrt(n) to the vertical axis.
+    rtsub = rt[:int(len(rt) * fraction)]
+    lenscale = np.sqrt(np.sum(rtsub * (1 - rtsub))) / len(rtsub)
+    plt.plot(2 * lenscale, 'k')
+    plt.plot(-2 * lenscale, 'k')
+    kwargs = {
+        'head_length': 2 * lenscale, 'head_width': len(rtsub) / 20, 'width': 0,
+        'linewidth': 0, 'length_includes_head': True, 'color': 'k'}
+    plt.arrow(.1e-100, -2 * lenscale, 0, 4 * lenscale, shape='left', **kwargs)
+    plt.arrow(.1e-100, 2 * lenscale, 0, -4 * lenscale, shape='right', **kwargs)
+    plt.margins(x=0, y=.4)
+    # Label the major ticks of the lower axis with the values of ss.
+    sl = [
+        '{:.2f}'.format(x)
+        for x in np.insert(
+            ss[:len(rtsub)], 0, [0])[::(len(rtsub) // majorticks)].tolist()]
+    plt.xticks(
+        np.arange(majorticks) * len(rtsub) // majorticks, sl[:majorticks])
+    if len(rtsub) >= 300 and minorticks >= 50:
+        # Indicate the distribution of s via unlabeled minor ticks.
+        plt.minorticks_on()
+        ax.tick_params(which='minor', axis='x')
+        ax.tick_params(which='minor', axis='y', left=False)
+        ax.set_xticks(np.cumsum(histcounts(minorticks, ss[:len(rtsub)])),
+                      minor=True)
+    # Label the axes.
+    plt.xlabel('$S_{i_k}$ (the subscript on $S$ is $i_k$)')
+    plt.ylabel('$F_k - \\tilde{F}_k$')
+    plt.twiny()
+    plt.xlabel('$k/n$')
+    # Title the plot.
+    plt.title(title)
+    # Clean up the whitespace in the plot.
+    plt.tight_layout()
+    # Set the locations (in the plot) of the covariate values.
+    xmid = s[-1] / 2
+    toptext = plt.text(xmid, max(2 * lenscale, np.max(f - ft)), '',
+                       ha='center', va='bottom')
+    bottomtext = plt.text(xmid, min(-2 * lenscale, np.min(f - ft)), '',
+                          ha='center', va='top')
+    # Set up interactivity.
+    binding_id = plt.connect('motion_notify_event', on_move)
+    plt.connect('button_press_event', on_click)
+    # Show the plot.
+    plt.show()
+    plt.close()
 
 
 # Specify the name of the file of comma-separated values
 # for the training data about the direct-mail marketing campaign.
-filename = 'cup98lrn.txt'
+filename = 'kddcup98/cup98lrn.txt'
+
+# Parse the command-line arguments (if any).
+parser = argparse.ArgumentParser()
+parser.add_argument('--interactive', dest='interactive', action='store_true')
+parser.add_argument(
+    '--no-interactive', dest='interactive', action='store_false')
+parser.add_argument(
+    '--non-interactive', dest='interactive', action='store_false')
+parser.set_defaults(interactive=True)
+clargs = parser.parse_args()
+
+# Make matplotlib interactive if clargs.interactive is True.
+if clargs.interactive:
+    plt.switch_backend(default_backend)
 
 # Count the number of lines in the file for filename.
 lines = 0
@@ -224,31 +417,31 @@ cmin = np.min(covars, axis=0)
 cmax = np.max(covars, axis=0)
 covars = (covars - cmin) / (cmax - cmin)
 
-# Create a directory, "unweighted", if none exists.
-dir = 'unweighted'
-try:
-    os.mkdir(dir)
-except FileExistsError:
-    pass
-dir += '/'
-
-# Scatterplot pairs of covariates.
-for j in range(covars.shape[1]):
-    for k in list(range(0, j)) + list(range(j + 1, covars.shape[1])):
-        plt.figure()
-        plt.scatter(covars[:, j], covars[:, k], s=.1, c='k')
-        plt.xlabel(vars[j])
-        plt.ylabel(vars[k])
-        plt.tight_layout()
-        # Save the figure to disk and queue up a process for converting
-        # from pdf to jpg.
-        filename = dir + str(j) + str(k)
-        filepdf = filename + '.pdf'
-        filejpg = filename + '.jpg'
-        plt.savefig(filepdf, bbox_inches='tight')
-        plt.close()
-        args = ['convert', '-density', '600', filepdf, filejpg]
-        procs.append(subprocess.Popen(args))
+if not clargs.interactive:
+    # Create a directory, "unweighted", if none exists.
+    dir = 'unweighted'
+    try:
+        os.mkdir(dir)
+    except FileExistsError:
+        pass
+    dir += '/'
+    # Scatterplot pairs of covariates.
+    for j in range(covars.shape[1]):
+        for k in list(range(0, j)) + list(range(j + 1, covars.shape[1])):
+            plt.figure()
+            plt.scatter(covars[:, j], covars[:, k], s=.1, c='k')
+            plt.xlabel(vars[j])
+            plt.ylabel(vars[k])
+            plt.tight_layout()
+            # Save the figure to disk and queue up a process for converting
+            # from pdf to jpg.
+            filename = dir + str(j) + str(k)
+            filepdf = filename + '.pdf'
+            filejpg = filename + '.jpg'
+            plt.savefig(filepdf, bbox_inches='tight')
+            plt.close()
+            args = ['convert', '-density', '600', filepdf, filejpg]
+            procs.append(subprocess.Popen(args))
 
 # Set the number of bits in the discretization (mantissa).
 precision = 64
@@ -281,6 +474,8 @@ for control in controls:
     # Sort according to the scores.
     perm = np.argsort(ints)
     t = t[perm, :]
+    u = covars[:, control]
+    u = u[perm, :]
     # Construct scores for plotting.
     imin = np.min(ints)
     imax = np.max(ints)
@@ -335,23 +530,24 @@ for control in controls:
         else:
             raise NotImplementedError(
                 'There is no subset known as "' + sub + '."')
-        # Set a directory for the controls.
-        dir = 'unweighted/' + sub
-        try:
-            os.mkdir(dir)
-        except FileExistsError:
-            pass
-        dir += '/'
-        for k in control:
-            dir += str(k)
-        try:
-            os.mkdir(dir)
-        except FileExistsError:
-            pass
-        dir += '/'
-        print(f'./{dir} is under construction....')
+        if not clargs.interactive:
+            # Set a directory for the controls.
+            dir = 'unweighted/' + sub
+            try:
+                os.mkdir(dir)
+            except FileExistsError:
+                pass
+            dir += '/'
+            for k in control:
+                dir += str(k)
+            try:
+                os.mkdir(dir)
+            except FileExistsError:
+                pass
+            dir += '/'
+            print(f'./{dir} is under construction....')
 
-        if len(control) == 2:
+        if len(control) == 2 and not clargs.interactive:
 
             # Plot the inputs without the subpopulation highlighted.
             plt.figure()
@@ -390,35 +586,48 @@ for control in controls:
             args = ['convert', '-density', '600', filepdf, filejpg]
             procs.append(subprocess.Popen(args))
 
-        # Plot reliability diagrams and the cumulative graph.
-        nin = [10, 20, 100]
-        for nbins in nin:
-            filename = dir + 'equiscores' + str(nbins) + '.pdf'
-            subpop.equiscore(r, s, inds, nbins, filename)
-            filename = dir + 'equierrs' + str(nbins) + '.pdf'
-            subpop.equisamps(r, s, inds, nbins, filename)
-        majorticks = 10
-        minorticks = 300
-        filename = dir + 'cumulative.pdf'
-        kuiper, kolmogorov_smirnov, lenscale = subpop.cumulative(
-            r, s, inds, majorticks, minorticks, filename=filename)
-        # Save metrics in a text file.
-        filename = dir + 'metrics.txt'
-        with open(filename, 'w') as f:
-            f.write('m:\n')
-            f.write(f'{len(s)}\n')
-            f.write('n:\n')
-            f.write(f'{len(inds)}\n')
-            f.write('lenscale:\n')
-            f.write(f'{lenscale}\n')
-            f.write('Kuiper:\n')
-            f.write(f'{kuiper:.4}\n')
-            f.write('Kolmogorov-Smirnov:\n')
-            f.write(f'{kolmogorov_smirnov:.4}\n')
-            f.write('Kuiper / lenscale:\n')
-            f.write(f'{(kuiper / lenscale):.4}\n')
-            f.write('Kolmogorov-Smirnov / lenscale:\n')
-            f.write(f'{(kolmogorov_smirnov / lenscale):.4}\n')
+        if clargs.interactive:
+            # Plot the cumulative differences interactively.
+            majorticks = 5
+            minorticks = 300
+            covariates = []
+            for j in range(len(control)):
+                offset = len('normalized ')
+                covariates.append(vars[control[j]][offset:])
+            window = 'subpop.: sent ' + sub + ' cards'
+            window += ' (click the plot to continue)'
+            icumulative(r, s, t, u, covariates, inds, majorticks, minorticks,
+                        window=window)
+        else:
+            # Plot reliability diagrams and the cumulative graph.
+            nin = [10, 20, 100]
+            for nbins in nin:
+                filename = dir + 'equiscores' + str(nbins) + '.pdf'
+                subpop.equiscore(r, s, inds, nbins, filename)
+                filename = dir + 'equierrs' + str(nbins) + '.pdf'
+                subpop.equisamps(r, s, inds, nbins, filename)
+            majorticks = 10
+            minorticks = 300
+            filename = dir + 'cumulative.pdf'
+            kuiper, kolmogorov_smirnov, lenscale = subpop.cumulative(
+                r, s, inds, majorticks, minorticks, filename=filename)
+            # Save metrics in a text file.
+            filename = dir + 'metrics.txt'
+            with open(filename, 'w') as f:
+                f.write('m:\n')
+                f.write(f'{len(s)}\n')
+                f.write('n:\n')
+                f.write(f'{len(inds)}\n')
+                f.write('lenscale:\n')
+                f.write(f'{lenscale}\n')
+                f.write('Kuiper:\n')
+                f.write(f'{kuiper:.4}\n')
+                f.write('Kolmogorov-Smirnov:\n')
+                f.write(f'{kolmogorov_smirnov:.4}\n')
+                f.write('Kuiper / lenscale:\n')
+                f.write(f'{(kuiper / lenscale):.4}\n')
+                f.write('Kolmogorov-Smirnov / lenscale:\n')
+                f.write(f'{(kolmogorov_smirnov / lenscale):.4}\n')
 
     # Compare two subpopulations directly.
     i0 = []
@@ -451,23 +660,24 @@ for control in controls:
                     r1.append(1)
     s01 = [np.array(s0), np.array(s1)]
     r01 = [np.array(r0), np.array(r1)]
-    # Set a directory for the controls.
-    dir = 'unweighted/folding_normal'
-    try:
-        os.mkdir(dir)
-    except FileExistsError:
-        pass
-    dir += '/'
-    for k in control:
-        dir += str(k)
-    try:
-        os.mkdir(dir)
-    except FileExistsError:
-        pass
-    dir += '/'
-    print(f'./{dir} is under construction....')
+    if not clargs.interactive:
+        # Set a directory for the controls.
+        dir = 'unweighted/folding_normal'
+        try:
+            os.mkdir(dir)
+        except FileExistsError:
+            pass
+        dir += '/'
+        for k in control:
+            dir += str(k)
+        try:
+            os.mkdir(dir)
+        except FileExistsError:
+            pass
+        dir += '/'
+        print(f'./{dir} is under construction....')
 
-    if len(control) == 2:
+    if len(control) == 2 and not clargs.interactive:
 
         # Plot the inputs with the subpopulations colored red and blue.
         plt.figure()
@@ -522,38 +732,52 @@ for control in controls:
         args = ['convert', '-density', '600', filepdf, filejpg]
         procs.append(subprocess.Popen(args))
 
-    # Plot reliability diagrams and the cumulative graph.
-    filename = dir + 'cumulative.pdf'
-    majorticks = 10
-    minorticks = 300
-    kuiper, kolmogorov_smirnov, lenscale, lencums = disjoint.cumulative(
-        r01, s01, majorticks, minorticks, False, filename)
-    filename = dir + 'metrics.txt'
-    with open(filename, 'w') as f:
-        f.write('n:\n')
-        f.write(f'{lencums}\n')
-        f.write('len(s0):\n')
-        f.write(f'{len(s0)}\n')
-        f.write('len(s1):\n')
-        f.write(f'{len(s1)}\n')
-        f.write('lenscale:\n')
-        f.write(f'{lenscale}\n')
-        f.write('Kuiper:\n')
-        f.write(f'{kuiper:.4}\n')
-        f.write('Kolmogorov-Smirnov:\n')
-        f.write(f'{kolmogorov_smirnov:.4}\n')
-        f.write('Kuiper / lenscale:\n')
-        f.write(f'{(kuiper / lenscale):.4}\n')
-        f.write('Kolmogorov-Smirnov / lenscale:\n')
-        f.write(f'{(kolmogorov_smirnov / lenscale):.4}\n')
-    nin = [10, 20, 100]
-    for nbins in nin:
-        filename = dir + 'equiscores' + str(nbins) + '.pdf'
-        disjoint.equiscore(r01, s01, nbins, filename)
-        filename = dir + 'equierrs' + str(nbins) + '.pdf'
-        disjoint.equisamps(r01, s01, nbins, filename)
-print()
-print('waiting for conversion from pdf to jpg to finish....')
-for iproc, proc in enumerate(procs):
-    proc.wait()
-    print(f'{iproc + 1} of {len(procs)} conversions are done....')
+    if clargs.interactive:
+        # Plot the cumulative differences interactively.
+        majorticks = 5
+        minorticks = 300
+        covariates = []
+        for j in range(len(control)):
+            offset = len('normalized ')
+            covariates.append(vars[control[j]][offset:])
+        window = 'subpop.: sent ' + sub + ' cards'
+        window += ' (click the plot to continue)'
+        icumulative(r, s, t, u, covariates, inds, majorticks, minorticks,
+                    window=window)
+    else:
+        # Plot reliability diagrams and the cumulative graph.
+        filename = dir + 'cumulative.pdf'
+        majorticks = 10
+        minorticks = 300
+        kuiper, kolmogorov_smirnov, lenscale, lencums = disjoint.cumulative(
+            r01, s01, majorticks, minorticks, False, filename)
+        filename = dir + 'metrics.txt'
+        with open(filename, 'w') as f:
+            f.write('n:\n')
+            f.write(f'{lencums}\n')
+            f.write('len(s0):\n')
+            f.write(f'{len(s0)}\n')
+            f.write('len(s1):\n')
+            f.write(f'{len(s1)}\n')
+            f.write('lenscale:\n')
+            f.write(f'{lenscale}\n')
+            f.write('Kuiper:\n')
+            f.write(f'{kuiper:.4}\n')
+            f.write('Kolmogorov-Smirnov:\n')
+            f.write(f'{kolmogorov_smirnov:.4}\n')
+            f.write('Kuiper / lenscale:\n')
+            f.write(f'{(kuiper / lenscale):.4}\n')
+            f.write('Kolmogorov-Smirnov / lenscale:\n')
+            f.write(f'{(kolmogorov_smirnov / lenscale):.4}\n')
+        nin = [10, 20, 100]
+        for nbins in nin:
+            filename = dir + 'equiscores' + str(nbins) + '.pdf'
+            disjoint.equiscore(r01, s01, nbins, filename)
+            filename = dir + 'equierrs' + str(nbins) + '.pdf'
+            disjoint.equisamps(r01, s01, nbins, filename)
+if not clargs.interactive:
+    print()
+    print('waiting for conversion from pdf to jpg to finish....')
+    for iproc, proc in enumerate(procs):
+        proc.wait()
+        print(f'{iproc + 1} of {len(procs)} conversions are done....')
