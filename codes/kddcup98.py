@@ -103,6 +103,8 @@ def icumulative(r, s, t, u, covariates, inds, majorticks, minorticks,
     from the full population interpolated to the subpopulation indices,
     with majorticks major ticks and minorticks minor ticks on the lower axis,
     labeling the major ticks with the corresponding values from s.
+    This is an interactive version of subpop.cumulative (probably not suitable
+    in general for all data sets, however).
 
     Parameters
     ----------
@@ -123,14 +125,16 @@ def icumulative(r, s, t, u, covariates, inds, majorticks, minorticks,
         number of major ticks on the lower axis
     minorticks : int
         number of minor ticks on the lower axis
-    filename : string, optional
-        name of the file in which to save the plot
     title : string, optional
         title of the plot
     fraction : float, optional
         proportion of the full horizontal axis to display
     window : string, optional
         title of the window displayed in the title bar
+
+    Returns
+    -------
+    None
     """
 
     def histcounts(nbins, x):
@@ -732,19 +736,7 @@ for control in controls:
         args = ['convert', '-density', '600', filepdf, filejpg]
         procs.append(subprocess.Popen(args))
 
-    if clargs.interactive:
-        # Plot the cumulative differences interactively.
-        majorticks = 5
-        minorticks = 300
-        covariates = []
-        for j in range(len(control)):
-            offset = len('normalized ')
-            covariates.append(vars[control[j]][offset:])
-        window = 'subpop.: sent ' + sub + ' cards'
-        window += ' (click the plot to continue)'
-        icumulative(r, s, t, u, covariates, inds, majorticks, minorticks,
-                    window=window)
-    else:
+    if not clargs.interactive:
         # Plot reliability diagrams and the cumulative graph.
         filename = dir + 'cumulative.pdf'
         majorticks = 10

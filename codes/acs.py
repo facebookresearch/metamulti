@@ -92,6 +92,8 @@ def icumulative(r, s, t, u, covariates, inds, majorticks, minorticks,
     weighted sums of r from the full population interpolated to the subpop.
     indices, with majorticks major ticks and minorticks minor ticks on the
     lower axis, labeling the major ticks with the corresponding values from s.
+    This is an interactive version of subpop_weighted.cumulative (probably not
+    suitable in general for all data sets, however).
 
     Parameters
     ----------
@@ -116,8 +118,6 @@ def icumulative(r, s, t, u, covariates, inds, majorticks, minorticks,
         set to True (the default) for Bernoulli variates; set to False
         to use empirical estimates of the variance rather than the formula
         p(1-p) for a Bernoulli variate whose mean is p
-    filename : string, optional
-        name of the file in which to save the plot
     title : string, optional
         title of the plot
     fraction : float, optional
@@ -127,6 +127,10 @@ def icumulative(r, s, t, u, covariates, inds, majorticks, minorticks,
         (the default None results in equal weighting)
     window : string, optional
         title of the window displayed in the title bar
+
+    Returns
+    -------
+    None
     """
 
     def histcounts(nbins, a):
