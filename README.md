@@ -45,7 +45,7 @@ Functions for plotting differences between two subpops. with disjoint scores
 (redistributed from the GitHub repo
 [fbcddisgraph](https://github.com/facebookresearch/fbcddisgraph))
 
-``codes/disjoint.py``
+``codes/subpop.py``
 Functions for plotting differences of a subpop. from the full population
 (redistributed from the GitHub repo
 [fbcdgraph](https://github.com/facebookresearch/fbcdgraph))

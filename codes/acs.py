@@ -266,7 +266,15 @@ def icumulative(r, s, t, u, covariates, inds, majorticks, minorticks,
           np.arange(0, 1 + 1 / majorticks, 1 / majorticks).tolist()]
     alist = (lenxf - 1) * np.arange(0, 1 + 1 / majorticks, 1 / majorticks)
     alist = alist.tolist()
-    plt.xticks([x[int(a)] for a in alist], ks)
+    # Jitter minor ticks that overlap with major ticks lest Pyplot omit them.
+    alabs = []
+    for a in alist:
+        multiple = x[int(a)] * majorticks
+        if abs(multiple - round(multiple)) > 1e-4:
+            alabs.append(x[int(a)])
+        else:
+            alabs.append(x[int(a)] * (1 - 1e-4))
+    plt.xticks(alabs, ks)
     # Include an unbreakable space character (NBSP) as a subscript "_{ }"
     # on the numerical labels to match the baseline offset of the subscript
     # of "k" on "A_k" in order to keep all labels aligned vertically.
