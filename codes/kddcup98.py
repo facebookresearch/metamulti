@@ -411,12 +411,16 @@ for k in range(len(raw)):
     for j in range(len(vars)):
         covars[k, j] = raw[k][header.index(vars[j])]
         if vars[j] == 'normalized average household income':
+            covars[k, j] *= 100
             covars[k, j] *= 1 + 1e-8 * rng.standard_normal()
+        if vars[j] == 'normalized fraction married':
+            covars[k, j] /= 100
 
 # Store processes for converting from pdf to jpeg in procs.
 procs = []
 
-# Normalize every covariate.
+# Normalize every covariate, saving the unnormalized versions in covs.
+covs = covars.copy()
 cmin = np.min(covars, axis=0)
 cmax = np.max(covars, axis=0)
 covars = (covars - cmin) / (cmax - cmin)
@@ -478,7 +482,7 @@ for control in controls:
     # Sort according to the scores.
     perm = np.argsort(ints)
     t = t[perm, :]
-    u = covars[:, control]
+    u = covs[:, control]
     u = u[perm, :]
     # Construct scores for plotting.
     imin = np.min(ints)
