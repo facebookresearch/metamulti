@@ -287,11 +287,13 @@ def icumulative(r, s, t, u, covariates, inds, majorticks, minorticks,
     # Clean up the whitespace in the plot.
     plt.tight_layout()
     # Set the locations (in the plot) of the covariate values.
-    xmid = s[-1] / 2
-    toptext = plt.text(xmid, max(2 * lenscale, np.max(f - ft)), '',
-                       ha='center', va='bottom')
-    bottomtext = plt.text(xmid, min(-2 * lenscale, np.min(f - ft)), '',
-                          ha='center', va='top')
+    xmid = s[:(len(s) * fraction)][-1] / 2
+    toptext = plt.text(
+        xmid, max(2 * lenscale, np.max((f - ft)[:(len(f) * fraction)])), '',
+        ha='center', va='bottom')
+    bottomtext = plt.text(
+        xmid, min(-2 * lenscale, np.min((f - ft)[:(len(f) * fraction)])), '',
+        ha='center', va='top')
     # Set up interactivity.
     binding_id = plt.connect('motion_notify_event', on_move)
     plt.connect('button_press_event', on_click)
