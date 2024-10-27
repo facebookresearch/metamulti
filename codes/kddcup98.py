@@ -619,7 +619,7 @@ for control in controls:
             majorticks = 10
             minorticks = 300
             filename = dir + 'cumulative.pdf'
-            kuiper, kolmogorov_smirnov, lenscale = subpop.cumulative(
+            kuiper, kolmogorov_smirnov, lenscale, _ = subpop.cumulative(
                 r, s, inds, majorticks, minorticks, filename=filename)
             # Save metrics in a text file.
             filename = dir + 'metrics.txt'

@@ -141,7 +141,7 @@ for (reverse, diff) in [(False, True), (True, True), (False, False)]:
         # Construct the graph of cumulative differences.
         majorticks = 10
         minorticks = 100
-        kuiper, kolmogorov_smirnov, lenscale = cumulative(
+        kuiper, kolmogorov_smirnov, lenscale, _ = cumulative(
             r, s, inds, majorticks, minorticks, filename=filename)
         # Save metrics in a text file.
         filename = filename[:-4] + '.txt'
