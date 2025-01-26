@@ -180,8 +180,8 @@ def icumulative(r, s, t, u, covariates, inds, majorticks, minorticks,
             bottomtxt = ''
             for j in range(len(covariates)):
                 toptxt += covariates[j]
-                if(np.allclose(
-                        np.round(u[inds[k], j]), u[inds[k], j], rtol=1e-5)):
+                if np.allclose(
+                        np.round(u[inds[k], j]), u[inds[k], j], rtol=1e-5):
                     toptxt += ' = {}'.format(round(u[inds[k], j]))
                 else:
                     toptxt += ' = {:.2f}'.format(u[inds[k], j])
@@ -320,7 +320,7 @@ with open(filename, 'r') as f:
                         # Convert a floating-point number to a float.
                         data.append(float(s))
                     except ValueError:
-                        if(s[-1] == '-'):
+                        if s[-1] == '-':
                             # The zipcode includes an extra hyphen ... omit it.
                             data.append(int(s[:-1]))
                         else:
